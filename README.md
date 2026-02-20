@@ -1,5 +1,8 @@
 # authgate-hybrid-cli
 
+[![Lint and Testing](https://github.com/go-authgate/cli/actions/workflows/testing.yml/badge.svg)](https://github.com/go-authgate/cli/actions/workflows/testing.yml)
+[![Trivy Security Scan](https://github.com/go-authgate/cli/actions/workflows/security.yml/badge.svg)](https://github.com/go-authgate/cli/actions/workflows/security.yml)
+
 A CLI example that combines **Authorization Code Flow** (browser-based) and **Device Code Flow** into a single binary. The flow is selected automatically based on the environment — no configuration required.
 
 ## How flow selection works
