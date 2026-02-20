@@ -3,24 +3,112 @@
 [![Lint and Testing](https://github.com/go-authgate/cli/actions/workflows/testing.yml/badge.svg)](https://github.com/go-authgate/cli/actions/workflows/testing.yml)
 [![Trivy Security Scan](https://github.com/go-authgate/cli/actions/workflows/security.yml/badge.svg)](https://github.com/go-authgate/cli/actions/workflows/security.yml)
 
-A production-ready OAuth 2.0 CLI that automatically selects between **Authorization Code Flow with PKCE** (browser-based) and **Device Authorization Grant** (headless/SSH) depending on the runtime environment. No manual configuration required.
+**A production-ready OAuth 2.0 CLI authentication library for Go.**
 
-This mirrors the authentication strategy used by GitHub CLI, Azure CLI, and Google Cloud SDK.
+Building OAuth 2.0 into a CLI tool means solving the same problems every time: detecting whether a browser is available, implementing PKCE correctly, running a local callback server, caching tokens, handling refresh, and gracefully falling back to a headless device flow for SSH/CI environments. Authgate CLI handles all of this so you can focus on your application logic.
+
+This mirrors the authentication strategy used by **GitHub CLI**, **Azure CLI**, and **Google Cloud SDK** — automatically selecting between Authorization Code Flow with PKCE (browser) and Device Authorization Grant (headless/SSH) based on the runtime environment, with no manual configuration required.
+
+---
 
 ## Table of Contents
 
-- [How It Works](#how-it-works)
-- [Prerequisites](#prerequisites)
+- [Why This CLI?](#why-this-cli)
 - [Quick Start](#quick-start)
+- [How It Works](#how-it-works)
 - [Configuration](#configuration)
 - [Authentication Flows](#authentication-flows)
 - [Token Storage](#token-storage)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+
+---
+
+## Why This CLI?
+
+Without Authgate CLI, every OAuth-enabled CLI tool must implement the same boilerplate:
+
+| If you implement it yourself                                | Authgate CLI handles it for you                         |
+| ----------------------------------------------------------- | ------------------------------------------------------- |
+| Detect SSH session / headless environment                   | ✅ Auto-selects PKCE or Device Flow                     |
+| Generate PKCE `code_verifier` + `code_challenge` (RFC 7636) | ✅ Built-in                                             |
+| Spin up a local callback HTTP server                        | ✅ Built-in, bound to `127.0.0.1`                       |
+| Add CSRF `state` parameter and validate on callback         | ✅ Built-in                                             |
+| Cache tokens to disk with safe file permissions             | ✅ Written as `0600`, multi-client keyed by `CLIENT_ID` |
+| Refresh access token silently on expiry                     | ✅ Built-in, with auto-retry on `401`                   |
+| Fall back to Device Flow when browser fails or times out    | ✅ Automatic                                            |
+| Handle concurrent writes to the token file                  | ✅ File-lock with stale-lock timeout                    |
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Go 1.24+
+- A running [AuthGate server](../README.md) — get the `CLIENT_ID` UUID from its startup logs
+
+### 1. Configure
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and set at minimum:
+
+```bash
+SERVER_URL=http://localhost:8080
+CLIENT_ID=<uuid-from-server-logs>   # Required — all other fields have defaults
+```
+
+### 2. Run
+
+```bash
+go run .
+```
+
+The CLI auto-detects your environment and selects the appropriate flow:
+
+- **Local workstation with a browser** → opens a browser tab, completes authorization silently
+- **SSH session / no display / CI** → prints a URL and user code for you to authorize from another device
+
+### 3. Build a binary
+
+```bash
+make build
+# Binary written to bin/cli
+./bin/cli
+```
 
 ---
 
 ## How It Works
 
+### System architecture
+
+Authgate CLI sits between your terminal and the AuthGate server. It acquires tokens on your behalf and demonstrates how to use them against a protected resource.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Your Terminal                                          │
+│                                                         │
+│  ┌────────────┐   OAuth tokens   ┌──────────────────┐  │
+│  │ Authgate   │ ◄──────────────► │  AuthGate Server │  │
+│  │ CLI        │                  │  (OAuth 2.0 AS)  │  │
+│  └─────┬──────┘                  └──────────────────┘  │
+│        │                                                │
+│        │ Bearer token                                   │
+│        ▼                                                │
+│  ┌─────────────┐                                        │
+│  │  Protected  │                                        │
+│  │  Resource   │                                        │
+│  └─────────────┘                                        │
+└─────────────────────────────────────────────────────────┘
+```
+
 ### Flow selection
+
+The CLI automatically picks the right OAuth flow based on the runtime environment:
 
 ```mermaid
 flowchart TD
@@ -63,32 +151,6 @@ On each run the CLI follows this order:
 3. **Expired access token** — attempt a silent refresh with the refresh token
 4. **Expired/missing refresh token** — trigger full re-authentication (browser or device flow)
 5. **After any successful auth** — verify token at `/oauth/tokeninfo`, then demonstrate auto-refresh on `401`
-
----
-
-## Prerequisites
-
-- Go 1.24+
-- A running [AuthGate server](../README.md)
-- The `CLIENT_ID` UUID shown in the server startup logs
-
----
-
-## Quick Start
-
-```bash
-cp .env.example .env
-# Edit .env: set CLIENT_ID (and SERVER_URL if not localhost)
-
-go run .
-```
-
-To build a binary:
-
-```bash
-make build
-# Binary is written to bin/cli
-```
 
 ---
 
@@ -233,6 +295,55 @@ The `flow` field records whether `browser` or `device` was used.
 **Concurrent write safety:** token writes use a `.lock` file with a 30-second stale-lock timeout, ensuring multiple processes can share the same token file without corruption.
 
 **File permissions:** written as `0600` (owner read/write only).
+
+---
+
+## Troubleshooting
+
+### Port 8888 is already in use
+
+The callback server cannot start, so the CLI falls back to Device Code Flow automatically. To use a different port for PKCE:
+
+```bash
+./bin/cli --port 9999
+# or
+CALLBACK_PORT=9999 ./bin/cli
+```
+
+### Browser does not open automatically
+
+The authorization URL is always printed to the terminal. Copy and paste it into a browser manually. The CLI will continue waiting for the callback.
+
+If you are in a headless environment (SSH without display forwarding), use `--device` to skip the browser flow entirely:
+
+```bash
+./bin/cli --device
+```
+
+### "CLIENT_ID is required" error
+
+The `CLIENT_ID` must be the UUID shown in the AuthGate server startup logs. It is not a value you create — it is assigned by the server when a client is registered.
+
+```bash
+# Check your .env
+cat .env | grep CLIENT_ID
+
+# Or pass it directly
+./bin/cli --client-id xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+```
+
+### Token refresh fails / kept asking to re-authenticate
+
+If the refresh token has expired, the CLI triggers a full re-authentication. Delete the token cache to start fresh:
+
+```bash
+rm .authgate-tokens.json
+./bin/cli
+```
+
+### Authorization timeout after 2 minutes
+
+The PKCE callback server waits up to 2 minutes for you to complete the browser flow. If it times out, the CLI falls back to Device Code Flow automatically. No action required.
 
 ---
 
