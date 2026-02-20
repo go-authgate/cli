@@ -58,7 +58,7 @@ func saveTokens(storage *TokenStorage) error {
 	if err != nil {
 		return fmt.Errorf("failed to acquire lock: %w", err)
 	}
-	defer lock.release()
+	defer func() { _ = lock.release() }()
 
 	var storageMap TokenStorageMap
 	if existing, err := os.ReadFile(tokenFile); err == nil {

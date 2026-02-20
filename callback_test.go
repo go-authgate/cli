@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,11 +12,13 @@ import (
 
 // startCallbackServerAsync starts the callback server in a goroutine and
 // returns a channel that will receive the authorization code (or error string).
-func startCallbackServerAsync(t *testing.T, port int, state string) chan string {
+func startCallbackServerAsync(
+	t *testing.T, ctx context.Context, port int, state string,
+) chan string {
 	t.Helper()
 	ch := make(chan string, 1)
 	go func() {
-		code, err := startCallbackServer(port, state)
+		code, err := startCallbackServer(ctx, port, state)
 		if err != nil {
 			ch <- "ERROR:" + err.Error()
 		} else {
@@ -31,13 +34,13 @@ func TestCallbackServer_Success(t *testing.T) {
 	const port = 19101
 	state := "test-state-success"
 
-	ch := startCallbackServerAsync(t, port, state)
+	ch := startCallbackServerAsync(t, context.Background(), port, state)
 
 	callbackURL := fmt.Sprintf(
 		"http://127.0.0.1:%d/callback?code=mycode123&state=%s",
 		port, state,
 	)
-	resp, err := http.Get(callbackURL) //nolint:noctx
+	resp, err := http.Get(callbackURL) //nolint:noctx,gosec
 	if err != nil {
 		t.Fatalf("GET callback failed: %v", err)
 	}
@@ -65,13 +68,13 @@ func TestCallbackServer_StateMismatch(t *testing.T) {
 	const port = 19102
 	state := "expected-state"
 
-	ch := startCallbackServerAsync(t, port, state)
+	ch := startCallbackServerAsync(t, context.Background(), port, state)
 
 	callbackURL := fmt.Sprintf(
 		"http://127.0.0.1:%d/callback?code=mycode&state=wrong-state",
 		port,
 	)
-	resp, err := http.Get(callbackURL) //nolint:noctx
+	resp, err := http.Get(callbackURL) //nolint:noctx,gosec
 	if err != nil {
 		t.Fatalf("GET callback failed: %v", err)
 	}
@@ -96,13 +99,13 @@ func TestCallbackServer_OAuthError(t *testing.T) {
 	const port = 19103
 	state := "state-for-error"
 
-	ch := startCallbackServerAsync(t, port, state)
+	ch := startCallbackServerAsync(t, context.Background(), port, state)
 
 	callbackURL := fmt.Sprintf(
 		"http://127.0.0.1:%d/callback?error=access_denied&error_description=User+denied&state=%s",
 		port, state,
 	)
-	resp, err := http.Get(callbackURL) //nolint:noctx
+	resp, err := http.Get(callbackURL) //nolint:noctx,gosec
 	if err != nil {
 		t.Fatalf("GET callback failed: %v", err)
 	}
@@ -130,14 +133,14 @@ func TestCallbackServer_DoubleCallback(t *testing.T) {
 	const port = 19105
 	state := "test-state-double"
 
-	ch := startCallbackServerAsync(t, port, state)
+	ch := startCallbackServerAsync(t, context.Background(), port, state)
 
 	url := fmt.Sprintf("http://127.0.0.1:%d/callback?code=mycode&state=%s", port, state)
 
 	done := make(chan error, 2)
 	for range 2 {
 		go func() {
-			resp, err := http.Get(url) //nolint:noctx
+			resp, err := http.Get(url) //nolint:noctx,gosec
 			if err == nil {
 				resp.Body.Close()
 			}
@@ -167,13 +170,13 @@ func TestCallbackServer_MissingCode(t *testing.T) {
 	const port = 19104
 	state := "state-for-missing-code"
 
-	ch := startCallbackServerAsync(t, port, state)
+	ch := startCallbackServerAsync(t, context.Background(), port, state)
 
 	callbackURL := fmt.Sprintf(
 		"http://127.0.0.1:%d/callback?state=%s",
 		port, state,
 	)
-	resp, err := http.Get(callbackURL) //nolint:noctx
+	resp, err := http.Get(callbackURL) //nolint:noctx,gosec
 	if err != nil {
 		t.Fatalf("GET callback failed: %v", err)
 	}

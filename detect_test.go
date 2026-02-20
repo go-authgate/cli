@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net"
 	"testing"
 )
@@ -12,7 +13,7 @@ func TestCheckBrowserAvailability_SSH_NoDisplay(t *testing.T) {
 	t.Setenv("DISPLAY", "")
 	t.Setenv("WAYLAND_DISPLAY", "")
 
-	avail := checkBrowserAvailability(18888)
+	avail := checkBrowserAvailability(context.Background(), 18888)
 
 	if avail.Available {
 		t.Error("expected browser unavailable in SSH session without display")
@@ -29,7 +30,7 @@ func TestCheckBrowserAvailability_SSHClient_NoDisplay(t *testing.T) {
 	t.Setenv("DISPLAY", "")
 	t.Setenv("WAYLAND_DISPLAY", "")
 
-	avail := checkBrowserAvailability(18888)
+	avail := checkBrowserAvailability(context.Background(), 18888)
 
 	if avail.Available {
 		t.Error("expected browser unavailable when SSH_CLIENT set and no display")
@@ -43,7 +44,7 @@ func TestCheckBrowserAvailability_SSHConnection_NoDisplay(t *testing.T) {
 	t.Setenv("DISPLAY", "")
 	t.Setenv("WAYLAND_DISPLAY", "")
 
-	avail := checkBrowserAvailability(18888)
+	avail := checkBrowserAvailability(context.Background(), 18888)
 
 	if avail.Available {
 		t.Error("expected browser unavailable when SSH_CONNECTION set and no display")
@@ -58,14 +59,14 @@ func TestCheckBrowserAvailability_SSH_WithX11(t *testing.T) {
 
 	// Use a port that is definitely free (bind to :0 and get the port,
 	// then close it; the brief gap is acceptable for a unit test).
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Skip("cannot allocate test port")
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
 	ln.Close()
 
-	avail := checkBrowserAvailability(port)
+	avail := checkBrowserAvailability(context.Background(), port)
 
 	// X11 forwarding over SSH should be detected as browser-capable
 	// (DISPLAY is set, port is free).
@@ -76,7 +77,7 @@ func TestCheckBrowserAvailability_SSH_WithX11(t *testing.T) {
 
 func TestCheckBrowserAvailability_PortUnavailable(t *testing.T) {
 	// Bind a port and keep it busy during the test.
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Skip("cannot bind test port")
 	}
@@ -92,7 +93,7 @@ func TestCheckBrowserAvailability_PortUnavailable(t *testing.T) {
 	t.Setenv("DISPLAY", ":0")
 	t.Setenv("WAYLAND_DISPLAY", "")
 
-	avail := checkBrowserAvailability(port)
+	avail := checkBrowserAvailability(context.Background(), port)
 
 	if avail.Available {
 		t.Errorf("expected browser unavailable when port %d is busy", port)
@@ -104,7 +105,7 @@ func TestCheckBrowserAvailability_PortUnavailable(t *testing.T) {
 
 func TestCheckBrowserAvailability_PortAvailable(t *testing.T) {
 	// Find a free port.
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Skip("cannot allocate test port")
 	}
@@ -117,7 +118,7 @@ func TestCheckBrowserAvailability_PortAvailable(t *testing.T) {
 	t.Setenv("DISPLAY", ":0")
 	t.Setenv("WAYLAND_DISPLAY", "")
 
-	avail := checkBrowserAvailability(port)
+	avail := checkBrowserAvailability(context.Background(), port)
 
 	if !avail.Available {
 		t.Errorf(
@@ -128,7 +129,7 @@ func TestCheckBrowserAvailability_PortAvailable(t *testing.T) {
 }
 
 func TestCheckBrowserAvailability_ReasonIsEmptyWhenAvailable(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Skip("cannot allocate test port")
 	}
@@ -141,7 +142,7 @@ func TestCheckBrowserAvailability_ReasonIsEmptyWhenAvailable(t *testing.T) {
 	t.Setenv("DISPLAY", ":0")
 	t.Setenv("WAYLAND_DISPLAY", "")
 
-	avail := checkBrowserAvailability(port)
+	avail := checkBrowserAvailability(context.Background(), port)
 
 	if avail.Available && avail.Reason != "" {
 		t.Errorf("expected empty reason when browser is available, got: %s", avail.Reason)

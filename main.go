@@ -8,13 +8,22 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 )
 
 func main() {
 	initConfig()
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	exitCode := run(ctx)
+	stop()
+	os.Exit(exitCode)
+}
+
+func run(ctx context.Context) int {
 	clientMode := "public (PKCE)"
 	if !isPublicClient() {
 		clientMode = "confidential"
@@ -25,7 +34,6 @@ func main() {
 	fmt.Printf("Client ID   : %s\n", clientID)
 	fmt.Println()
 
-	ctx := context.Background()
 	var storage *TokenStorage
 
 	// Try to reuse or refresh existing tokens.
@@ -37,7 +45,7 @@ func main() {
 			storage = existing
 		} else {
 			fmt.Println("Access token expired, attempting refresh...")
-			newStorage, err := refreshAccessToken(existing.RefreshToken)
+			newStorage, err := refreshAccessToken(ctx, existing.RefreshToken)
 			if err != nil {
 				fmt.Printf("Refresh failed: %v\n", err)
 				fmt.Println("Starting new authentication flow...")
@@ -55,7 +63,7 @@ func main() {
 		storage, err = authenticate(ctx)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Authentication failed: %v\n", err)
-			os.Exit(1)
+			return 1
 		}
 	}
 
@@ -76,7 +84,7 @@ func main() {
 
 	// Verify token against server.
 	fmt.Println("\nVerifying token with server...")
-	if err := verifyToken(storage.AccessToken); err != nil {
+	if err := verifyToken(ctx, storage.AccessToken); err != nil {
 		fmt.Printf("Token verification failed: %v\n", err)
 	} else {
 		fmt.Println("Token verified successfully.")
@@ -90,17 +98,18 @@ func main() {
 			storage, err = authenticate(ctx)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Re-authentication failed: %v\n", err)
-				os.Exit(1)
+				return 1
 			}
 			if err := makeAPICallWithAutoRefresh(ctx, storage); err != nil {
 				fmt.Fprintf(os.Stderr, "API call failed after re-authentication: %v\n", err)
-				os.Exit(1)
+				return 1
 			}
 			fmt.Println("API call successful after re-authentication.")
 		} else {
 			fmt.Fprintf(os.Stderr, "API call failed: %v\n", err)
 		}
 	}
+	return 0
 }
 
 // authenticate selects and runs the appropriate OAuth flow:
@@ -115,14 +124,14 @@ func authenticate(ctx context.Context) (*TokenStorage, error) {
 		return performDeviceFlow(ctx)
 	}
 
-	avail := checkBrowserAvailability(callbackPort)
+	avail := checkBrowserAvailability(ctx, callbackPort)
 	if !avail.Available {
 		fmt.Printf("Auth method : Device Code Flow (%s)\n", avail.Reason)
 		return performDeviceFlow(ctx)
 	}
 
 	fmt.Println("Auth method : Authorization Code Flow (browser)")
-	storage, ok, err := performBrowserFlow()
+	storage, ok, err := performBrowserFlow(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -138,8 +147,8 @@ func authenticate(ctx context.Context) (*TokenStorage, error) {
 // Token refresh
 // -----------------------------------------------------------------------
 
-func refreshAccessToken(refreshToken string) (*TokenStorage, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), refreshTokenTimeout)
+func refreshAccessToken(ctx context.Context, refreshToken string) (*TokenStorage, error) {
+	ctx, cancel := context.WithTimeout(ctx, refreshTokenTimeout)
 	defer cancel()
 
 	data := url.Values{}
@@ -225,8 +234,8 @@ func refreshAccessToken(refreshToken string) (*TokenStorage, error) {
 // Token verification / API demo
 // -----------------------------------------------------------------------
 
-func verifyToken(accessToken string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), tokenVerificationTimeout)
+func verifyToken(ctx context.Context, accessToken string) error {
+	ctx, cancel := context.WithTimeout(ctx, tokenVerificationTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, serverURL+"/oauth/tokeninfo", nil)
@@ -275,7 +284,7 @@ func makeAPICallWithAutoRefresh(ctx context.Context, storage *TokenStorage) erro
 	if resp.StatusCode == http.StatusUnauthorized {
 		fmt.Println("Access token rejected (401), refreshing...")
 
-		newStorage, err := refreshAccessToken(storage.RefreshToken)
+		newStorage, err := refreshAccessToken(ctx, storage.RefreshToken)
 		if err != nil {
 			if err == ErrRefreshTokenExpired {
 				return ErrRefreshTokenExpired

@@ -62,7 +62,7 @@ func TestConcurrentLocks(t *testing.T) {
 			concurrent--
 			mu.Unlock()
 
-			lock.release()
+			_ = lock.release()
 		}(i)
 	}
 
@@ -89,5 +89,5 @@ func TestStaleLockRemoval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("acquireFileLock() with stale lock: %v", err)
 	}
-	lock.release()
+	_ = lock.release()
 }
