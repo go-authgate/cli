@@ -1,4 +1,4 @@
-# authgate-hybrid-cli
+# Authgate CLI
 
 [![Lint and Testing](https://github.com/go-authgate/cli/actions/workflows/testing.yml/badge.svg)](https://github.com/go-authgate/cli/actions/workflows/testing.yml)
 [![Trivy Security Scan](https://github.com/go-authgate/cli/actions/workflows/security.yml/badge.svg)](https://github.com/go-authgate/cli/actions/workflows/security.yml)
@@ -9,31 +9,34 @@ A CLI example that combines **Authorization Code Flow** (browser-based) and **De
 
 ```mermaid
 flowchart TD
-    A([CLI Launch]) --> B{--device /\n--no-browser?}
+    classDef start   fill:#6366f1,color:#fff,stroke:#4f46e5
+    classDef pkce    fill:#22c55e,color:#fff,stroke:#16a34a
+    classDef device  fill:#f59e0b,color:#000,stroke:#d97706
+    classDef done    fill:#3b82f6,color:#fff,stroke:#2563eb
+    classDef check   fill:#f8fafc,color:#1e293b,stroke:#94a3b8
 
-    B -- Yes --> Z([Device Code Flow])
+    START([CLI Launch]):::start --> FORCE_FLAG{Force device flag?}:::check
 
-    B -- No --> C{SSH session\nwithout display?}
-    C -- Yes\nSSH_TTY / SSH_CLIENT /\nSSH_CONNECTION set\nand no DISPLAY --> Z
+    FORCE_FLAG -->|"--device / --no-browser"| DEVICE([Device Code Flow]):::device
+    FORCE_FLAG -->|No| SSH{SSH, no display?}:::check
 
-    C -- No --> D{Linux with\nno display server?}
-    D -- Yes\nDISPLAY and\nWAYLAND_DISPLAY empty --> Z
+    SSH -->|"SSH env vars set & no DISPLAY"| DEVICE
+    SSH -->|No| LINUX{Linux, no display?}:::check
 
-    D -- No --> E{Callback port\navailable?}
-    E -- No\nport already in use --> Z
+    LINUX -->|"DISPLAY & WAYLAND_DISPLAY unset"| DEVICE
+    LINUX -->|No| PORT{Callback port free?}:::check
 
-    E -- Yes --> F([Authorization Code Flow with PKCE])
-    F --> G{openBrowser\nsucceeds?}
-    G -- No --> Z
-    G -- Yes --> H{Callback\nreceived?}
-    H -- Timeout\n2 min --> Z
-    H -- Yes --> I([Tokens saved])
+    PORT -->|Port in use| DEVICE
+    PORT -->|Available| PKCE([Auth Code Flow with PKCE]):::pkce
 
-    Z --> I
+    PKCE --> BROWSER{Browser opens?}:::check
+    BROWSER -->|Failed| DEVICE
+    BROWSER -->|Success| CALLBACK{Callback received?}:::check
 
-    style Z fill:#f0a500,color:#000
-    style F fill:#2ea44f,color:#fff
-    style I fill:#0969da,color:#fff
+    CALLBACK -->|"Timeout — 2 min"| DEVICE
+    CALLBACK -->|Received| DONE([Tokens Saved]):::done
+
+    DEVICE --> DONE
 ```
 
 This mirrors how major CLI tools (GitHub CLI, Azure CLI, Google Cloud SDK) handle authentication: browser flow on a local machine, device code flow in SSH/headless/CI environments.
