@@ -18,7 +18,7 @@ import (
 //   - (storage, true, nil)  on success
 //   - (nil, false, nil)     when openBrowser() fails — caller should fall back to Device Code Flow
 //   - (nil, false, err)     on a hard error (CSRF mismatch, token exchange failure, etc.)
-func performBrowserFlow() (*TokenStorage, bool, error) {
+func performBrowserFlow(ctx context.Context) (*TokenStorage, bool, error) {
 	state, err := generateState()
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to generate state: %w", err)
@@ -34,7 +34,7 @@ func performBrowserFlow() (*TokenStorage, bool, error) {
 	fmt.Println("Step 1: Opening browser for authorization...")
 	fmt.Printf("\n  %s\n\n", authURL)
 
-	if err := openBrowser(authURL); err != nil {
+	if err := openBrowser(ctx, authURL); err != nil {
 		// Browser failed to open — signal the caller to fall back immediately.
 		fmt.Printf("Could not open browser: %v\n", err)
 		return nil, false, nil
@@ -43,7 +43,7 @@ func performBrowserFlow() (*TokenStorage, bool, error) {
 	fmt.Println("Browser opened. Please complete authorization in your browser.")
 	fmt.Printf("Step 2: Waiting for callback on http://localhost:%d/callback ...\n", callbackPort)
 
-	code, err := startCallbackServer(callbackPort, state)
+	code, err := startCallbackServer(ctx, callbackPort, state)
 	if err != nil {
 		if errors.Is(err, ErrCallbackTimeout) {
 			// User opened the browser but didn't complete authorization in time.
@@ -59,7 +59,7 @@ func performBrowserFlow() (*TokenStorage, bool, error) {
 	fmt.Println("Authorization code received!")
 
 	fmt.Println("Step 3: Exchanging authorization code for tokens...")
-	storage, err := exchangeCode(code, pkce.Verifier)
+	storage, err := exchangeCode(ctx, code, pkce.Verifier)
 	if err != nil {
 		return nil, false, fmt.Errorf("token exchange failed: %w", err)
 	}
@@ -88,8 +88,8 @@ func buildAuthURL(state string, pkce *PKCEParams) string {
 }
 
 // exchangeCode exchanges an authorization code for access + refresh tokens.
-func exchangeCode(code, codeVerifier string) (*TokenStorage, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), tokenExchangeTimeout)
+func exchangeCode(ctx context.Context, code, codeVerifier string) (*TokenStorage, error) {
+	ctx, cancel := context.WithTimeout(ctx, tokenExchangeTimeout)
 	defer cancel()
 
 	data := url.Values{}

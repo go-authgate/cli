@@ -25,7 +25,7 @@ func init() {
 		clientID = "test-client"
 	}
 	if tokenFile == "" {
-		tokenFile = ".authgate-tokens.json"
+		tokenFile = ".authgate-tokens.json" //nolint:gosec
 	}
 	if scope == "" {
 		scope = "read write"
@@ -352,14 +352,16 @@ func TestRefreshAccessToken_RotationMode(t *testing.T) {
 						resp["refresh_token"] = tt.responseRefreshToken
 					}
 					w.Header().Set("Content-Type", "application/json")
-					json.NewEncoder(w).Encode(resp)
+					if err := json.NewEncoder(w).Encode(resp); err != nil {
+						http.Error(w, err.Error(), http.StatusInternalServerError)
+					}
 				}),
 			)
 			defer srv.Close()
 
 			serverURL = srv.URL
 
-			storage, err := refreshAccessToken(tt.oldRefreshToken)
+			storage, err := refreshAccessToken(context.Background(), tt.oldRefreshToken)
 			if err != nil {
 				t.Fatalf("refreshAccessToken() error: %v", err)
 			}
@@ -398,14 +400,16 @@ func TestRequestDeviceCode_WithRetry(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"device_code":               "test-device-code",
 			"user_code":                 "TEST-CODE",
 			"verification_uri":          testServer.URL + "/device",
 			"verification_uri_complete": testServer.URL + "/device?user_code=TEST-CODE",
 			"expires_in":                600,
 			"interval":                  5,
-		})
+		}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}))
 	defer testServer.Close()
 

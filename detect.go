@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -23,7 +24,7 @@ type BrowserAvailability struct {
 // This function never attempts to open a browser itself; it only inspects
 // the environment. Callers that pass the check should still handle
 // openBrowser() failures as a secondary fallback.
-func checkBrowserAvailability(port int) BrowserAvailability {
+func checkBrowserAvailability(ctx context.Context, port int) BrowserAvailability {
 	// Stage 1a: SSH without X11/Wayland forwarding.
 	// SSH_TTY / SSH_CLIENT / SSH_CONNECTION indicate a remote shell.
 	// If a display is also present (X11 forwarding), the browser can still open.
@@ -44,7 +45,8 @@ func checkBrowserAvailability(port int) BrowserAvailability {
 
 	// Stage 2: Verify the callback port can be bound.
 	// A busy port means the redirect server cannot start.
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	lc := &net.ListenConfig{}
+	ln, err := lc.Listen(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		return BrowserAvailability{
 			false,

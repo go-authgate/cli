@@ -32,7 +32,7 @@ type callbackResult struct {
 // and returns the authorization code (or an error).
 //
 // The server shuts itself down after the first request.
-func startCallbackServer(port int, expectedState string) (string, error) {
+func startCallbackServer(ctx context.Context, port int, expectedState string) (string, error) {
 	resultCh := make(chan callbackResult, 1)
 
 	var once sync.Once
@@ -80,7 +80,7 @@ func startCallbackServer(port int, expectedState string) (string, error) {
 		WriteTimeout: 10 * time.Second,
 	}
 
-	ln, err := net.Listen("tcp", srv.Addr)
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", srv.Addr)
 	if err != nil {
 		return "", fmt.Errorf("failed to start callback server on port %d: %w", port, err)
 	}
@@ -90,9 +90,9 @@ func startCallbackServer(port int, expectedState string) (string, error) {
 	}()
 
 	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		_ = srv.Shutdown(ctx)
+		_ = srv.Shutdown(shutdownCtx)
 	}()
 
 	select {

@@ -13,6 +13,8 @@ import (
 	"golang.org/x/oauth2"
 )
 
+const testAccessToken = "test-access-token"
+
 func TestPollForToken_AuthorizationPending(t *testing.T) {
 	attempts := atomic.Int32{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -21,20 +23,24 @@ func TestPollForToken_AuthorizationPending(t *testing.T) {
 		if attempts.Load() < 3 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
+			if err := json.NewEncoder(w).Encode(map[string]string{
 				"error":             "authorization_pending",
 				"error_description": "User has not yet authorized",
-			})
+			}); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"access_token":  "test-access-token",
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
+			"access_token":  testAccessToken,
 			"refresh_token": "test-refresh-token",
 			"token_type":    "Bearer",
 			"expires_in":    3600,
-		})
+		}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}))
 	defer server.Close()
 
@@ -54,8 +60,8 @@ func TestPollForToken_AuthorizationPending(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected success, got error: %v", err)
 	}
-	if token.AccessToken != "test-access-token" {
-		t.Errorf("access token = %q, want %q", token.AccessToken, "test-access-token")
+	if token.AccessToken != testAccessToken {
+		t.Errorf("access token = %q, want %q", token.AccessToken, testAccessToken)
 	}
 	if attempts.Load() < 3 {
 		t.Errorf("expected at least 3 attempts, got %d", attempts.Load())
@@ -73,30 +79,36 @@ func TestPollForToken_SlowDown(t *testing.T) {
 			slowDownCount.Add(1)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
+			if err := json.NewEncoder(w).Encode(map[string]string{
 				"error":             "slow_down",
 				"error_description": "Polling too frequently",
-			})
+			}); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
 			return
 		}
 
 		if attempts.Load() < 5 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
+			if err := json.NewEncoder(w).Encode(map[string]string{
 				"error":             "authorization_pending",
 				"error_description": "User has not yet authorized",
-			})
+			}); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"access_token":  "test-access-token",
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
+			"access_token":  testAccessToken,
 			"refresh_token": "test-refresh-token",
 			"token_type":    "Bearer",
 			"expires_in":    3600,
-		})
+		}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}))
 	defer server.Close()
 
@@ -116,22 +128,27 @@ func TestPollForToken_SlowDown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected success, got error: %v", err)
 	}
-	if token.AccessToken != "test-access-token" {
-		t.Errorf("access token = %q, want %q", token.AccessToken, "test-access-token")
+	if token.AccessToken != testAccessToken {
+		t.Errorf("access token = %q, want %q", token.AccessToken, testAccessToken)
 	}
 	if slowDownCount.Load() < 2 {
 		t.Errorf("expected at least 2 slow_down responses, got %d", slowDownCount.Load())
 	}
 }
 
-func TestPollForToken_ExpiredToken(t *testing.T) {
+// pollForTokenErrorTest is a shared helper for tests that expect pollForTokenWithProgress
+// to return a specific error when the server responds with a terminal OAuth error code.
+func pollForTokenErrorTest(t *testing.T, errCode, errDesc, expectedMsg string) {
+	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error":             "expired_token",
-			"error_description": "Device code has expired",
-		})
+		if err := json.NewEncoder(w).Encode(map[string]string{
+			"error":             errCode,
+			"error_description": errDesc,
+		}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}))
 	defer server.Close()
 
@@ -149,53 +166,39 @@ func TestPollForToken_ExpiredToken(t *testing.T) {
 
 	_, err := pollForTokenWithProgress(ctx, config, deviceAuth)
 	if err == nil {
-		t.Fatal("expected error for expired token, got nil")
+		t.Fatal("expected error, got nil")
 	}
-	if err.Error() != "device code expired, please restart the flow" {
+	if err.Error() != expectedMsg {
 		t.Errorf("unexpected error message: %v", err)
 	}
 }
 
+func TestPollForToken_ExpiredToken(t *testing.T) {
+	pollForTokenErrorTest(t,
+		"expired_token",
+		"Device code has expired",
+		"device code expired, please restart the flow",
+	)
+}
+
 func TestPollForToken_AccessDenied(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error":             "access_denied",
-			"error_description": "User denied the authorization request",
-		})
-	}))
-	defer server.Close()
-
-	config := &oauth2.Config{
-		ClientID: "test-client",
-		Endpoint: oauth2.Endpoint{TokenURL: server.URL},
-	}
-	deviceAuth := &oauth2.DeviceAuthResponse{
-		DeviceCode: "test-device-code",
-		Interval:   1,
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	_, err := pollForTokenWithProgress(ctx, config, deviceAuth)
-	if err == nil {
-		t.Fatal("expected error for access denied, got nil")
-	}
-	if err.Error() != "user denied authorization" {
-		t.Errorf("unexpected error message: %v", err)
-	}
+	pollForTokenErrorTest(t,
+		"access_denied",
+		"User denied the authorization request",
+		"user denied authorization",
+	)
 }
 
 func TestPollForToken_ContextTimeout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
+		if err := json.NewEncoder(w).Encode(map[string]string{
 			"error":             "authorization_pending",
 			"error_description": "User has not yet authorized",
-		})
+		}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}))
 	defer server.Close()
 
@@ -236,12 +239,14 @@ func TestExchangeDeviceCode_Success(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"access_token":  "test-access-token",
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
+			"access_token":  testAccessToken,
 			"refresh_token": "test-refresh-token",
 			"token_type":    "Bearer",
 			"expires_in":    3600,
-		})
+		}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}))
 	defer server.Close()
 
@@ -250,8 +255,8 @@ func TestExchangeDeviceCode_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected success, got error: %v", err)
 	}
-	if token.AccessToken != "test-access-token" {
-		t.Errorf("access token = %q, want %q", token.AccessToken, "test-access-token")
+	if token.AccessToken != testAccessToken {
+		t.Errorf("access token = %q, want %q", token.AccessToken, testAccessToken)
 	}
 	if token.RefreshToken != "test-refresh-token" {
 		t.Errorf("refresh token = %q, want %q", token.RefreshToken, "test-refresh-token")
