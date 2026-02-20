@@ -1,5 +1,5 @@
 GO ?= go
-EXECUTABLE := cli
+EXECUTABLE := authgate-cli
 GOFILES := $(shell find . -type f -name "*.go")
 TAGS ?=
 TEMPL_VERSION ?= latest
