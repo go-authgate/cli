@@ -56,7 +56,13 @@ func TestCallbackServer_Success(t *testing.T) {
 	const port = 19101
 	state := "test-state-success"
 
-	ch := startCallbackServerAsync(t, context.Background(), port, state, stubExchangeFn("mycode123"))
+	ch := startCallbackServerAsync(
+		t,
+		context.Background(),
+		port,
+		state,
+		stubExchangeFn("mycode123"),
+	)
 
 	callbackURL := fmt.Sprintf(
 		"http://127.0.0.1:%d/callback?code=mycode123&state=%s",
