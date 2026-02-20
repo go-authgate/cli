@@ -1,4 +1,4 @@
-module example/authgate-hybrid-cli
+module github.com/go-authgate/cli
 
 go 1.24.0
 
