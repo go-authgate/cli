@@ -84,7 +84,7 @@ func requestDeviceCode(ctx context.Context) (*oauth2.DeviceAuthResponse, error) 
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := retryClient.Do(reqCtx, req)
+	resp, err := retryClient.DoWithContext(reqCtx, req)
 	if err != nil {
 		return nil, fmt.Errorf("device code request failed: %w", err)
 	}
@@ -244,7 +244,7 @@ func exchangeDeviceCode(
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := retryClient.Do(reqCtx, req)
+	resp, err := retryClient.DoWithContext(reqCtx, req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
