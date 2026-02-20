@@ -48,7 +48,7 @@ flowchart TD
     BROWSER -->|Failed| DEVICE
     BROWSER -->|Success| CALLBACK{Callback received?}:::check
 
-    CALLBACK -->|Timeout (2 min)| DEVICE
+    CALLBACK -->|"Timeout (2 min)"| DEVICE
     CALLBACK -->|Received| DONE([Tokens Saved]):::done
 
     DEVICE --> DONE
