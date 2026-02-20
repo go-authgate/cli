@@ -116,7 +116,7 @@ func exchangeCode(code, codeVerifier string) (*TokenStorage, error) {
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := retryClient.Do(ctx, req)
+	resp, err := retryClient.DoWithContext(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
