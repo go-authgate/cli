@@ -43,7 +43,11 @@ func performBrowserFlow(ctx context.Context) (*TokenStorage, bool, error) {
 	fmt.Println("Browser opened. Please complete authorization in your browser.")
 	fmt.Printf("Step 2: Waiting for callback on http://localhost:%d/callback ...\n", callbackPort)
 
-	code, err := startCallbackServer(ctx, callbackPort, state)
+	storage, err := startCallbackServer(ctx, callbackPort, state,
+		func(callbackCtx context.Context, code string) (*TokenStorage, error) {
+			fmt.Println("Step 3: Exchanging authorization code for tokens...")
+			return exchangeCode(callbackCtx, code, pkce.Verifier)
+		})
 	if err != nil {
 		if errors.Is(err, ErrCallbackTimeout) {
 			// User opened the browser but didn't complete authorization in time.
@@ -54,14 +58,7 @@ func performBrowserFlow(ctx context.Context) (*TokenStorage, bool, error) {
 			)
 			return nil, false, nil
 		}
-		return nil, false, fmt.Errorf("authorization failed: %w", err)
-	}
-	fmt.Println("Authorization code received!")
-
-	fmt.Println("Step 3: Exchanging authorization code for tokens...")
-	storage, err := exchangeCode(ctx, code, pkce.Verifier)
-	if err != nil {
-		return nil, false, fmt.Errorf("token exchange failed: %w", err)
+		return nil, false, fmt.Errorf("authentication failed: %w", err)
 	}
 	storage.Flow = "browser"
 

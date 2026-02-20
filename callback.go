@@ -22,17 +22,20 @@ var ErrCallbackTimeout = fmt.Errorf("browser authorization timed out")
 
 // callbackResult holds the outcome of the local callback round-trip.
 type callbackResult struct {
-	Code  string
-	Error string
-	Desc  string
+	Storage *TokenStorage
+	Error   string
+	Desc    string
 }
 
 // startCallbackServer starts a local HTTP server on the given port and waits
-// for the OAuth callback. It validates the returned state against expectedState
-// and returns the authorization code (or an error).
+// for the OAuth callback. It validates the returned state against expectedState,
+// calls exchangeFn to exchange the code for tokens, and returns the resulting
+// TokenStorage (or an error).
 //
 // The server shuts itself down after the first request.
-func startCallbackServer(ctx context.Context, port int, expectedState string) (string, error) {
+func startCallbackServer(ctx context.Context, port int, expectedState string,
+	exchangeFn func(context.Context, string) (*TokenStorage, error),
+) (*TokenStorage, error) {
 	resultCh := make(chan callbackResult, 1)
 
 	var once sync.Once
@@ -69,20 +72,26 @@ func startCallbackServer(ctx context.Context, port int, expectedState string) (s
 			return
 		}
 
+		storage, exchangeErr := exchangeFn(r.Context(), code)
+		if exchangeErr != nil {
+			writeCallbackPage(w, false, "token_exchange_failed", exchangeErr.Error())
+			sendResult(callbackResult{Error: "token_exchange_failed", Desc: exchangeErr.Error()})
+			return
+		}
 		writeCallbackPage(w, true, "", "")
-		sendResult(callbackResult{Code: code})
+		sendResult(callbackResult{Storage: storage})
 	})
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf("127.0.0.1:%d", port),
 		Handler:      mux,
 		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		WriteTimeout: 15 * time.Second,
 	}
 
 	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", srv.Addr)
 	if err != nil {
-		return "", fmt.Errorf("failed to start callback server on port %d: %w", port, err)
+		return nil, fmt.Errorf("failed to start callback server on port %d: %w", port, err)
 	}
 
 	go func() {
@@ -99,14 +108,14 @@ func startCallbackServer(ctx context.Context, port int, expectedState string) (s
 	case result := <-resultCh:
 		if result.Error != "" {
 			if result.Desc != "" {
-				return "", fmt.Errorf("%s: %s", result.Error, result.Desc)
+				return nil, fmt.Errorf("%s: %s", result.Error, result.Desc)
 			}
-			return "", fmt.Errorf("%s", result.Error)
+			return nil, fmt.Errorf("%s", result.Error)
 		}
-		return result.Code, nil
+		return result.Storage, nil
 
 	case <-time.After(callbackTimeout):
-		return "", fmt.Errorf("%w after %s", ErrCallbackTimeout, callbackTimeout)
+		return nil, fmt.Errorf("%w after %s", ErrCallbackTimeout, callbackTimeout)
 	}
 }
 
